@@ -2,9 +2,37 @@ import { Drawer } from 'expo-router/drawer';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 
-
+import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function Layout() {
+
+    const [ready, setReady] = useState(false);
+
+    useEffect(() => {
+        const checkLaunch = async () => {
+            try {
+                const launched = await AsyncStorage.getItem("alreadyLaunched");
+
+                if (!launched) {
+                    // WAŻNE: router.replace musi wejść w następny "tick",
+                    // inaczej layout się nie wyrenderuje → biały ekran.
+                    setTimeout(() => {
+                        router.replace("/welcome");
+                    }, 0);
+                }
+
+            } catch (e) {
+                console.error("Launch check error:", e);
+            } finally {
+                setReady(true);
+            }
+        };
+
+        checkLaunch();
+    }, []);
+
+    if (!ready) return <View><Text style={{color:"white"}}>Loading...</Text></View>;
 
     return (
         <Drawer
@@ -26,8 +54,6 @@ export default function Layout() {
         >
             <Drawer.Screen name="index" options={{ title: "Home Page" }} />
             <Drawer.Screen name="results" options={{ title: "Results" }} />
-            <Drawer.Screen name="rules" options={{ title: "Regulamin" }} />
-            {/* JEDEN ekran dla wszystkich /test/1, /test/2, /test/3 */}
             <Drawer.Screen name="test/[id]" options={{ title: "Test" }} />
         </Drawer>
 
@@ -38,18 +64,13 @@ function CustomDrawer() {
     return (
         <View style={styles.container}>
 
-            {/* GÓRNA CZĘŚĆ – logo + tytuł */}
             <View style={styles.header}>
-
-                {/* Placeholder obrazka */}
                 <Image
                     source={require('../assets/images/Quiz_App_IMG.png')}
                     style={styles.logo}
                 />
-
             </View>
 
-            {/* PRZYCISKI: Home + Results */}
             <TouchableOpacity style={styles.button} onPress={() => router.push('/')}>
                 <Text style={styles.buttonText}>Home Page</Text>
             </TouchableOpacity>
@@ -58,10 +79,8 @@ function CustomDrawer() {
                 <Text style={styles.buttonText}>Results</Text>
             </TouchableOpacity>
 
-            {/* LINIA ODDZIELAJĄCA */}
             <View style={styles.separator} />
 
-            {/* TESTY */}
             <TouchableOpacity style={styles.button} onPress={() => router.push('/test/1')}>
                 <Text style={styles.buttonText}>Test title #1</Text>
             </TouchableOpacity>
@@ -80,7 +99,7 @@ function CustomDrawer() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#1a1a1d', // ciemne tło pasujące do logo
+        backgroundColor: '#1a1a1d',
         paddingTop: 60,
         paddingHorizontal: 10,
     },
@@ -90,16 +109,6 @@ const styles = StyleSheet.create({
         marginBottom: 25,
     },
 
-    title: {
-        fontSize: 30,
-        fontWeight: 'bold',
-        color: '#e6e6e6', // jasny napis
-        textShadowColor: 'rgba(120, 60, 255, 0.6)', // fioletowa poświata
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 8,
-        letterSpacing: 1,
-    },
-
     logo: {
         width: 170,
         height: 170,
@@ -107,7 +116,7 @@ const styles = StyleSheet.create({
         marginTop: 10,
         marginBottom: 5,
         borderRadius: 18,
-        shadowColor: '#783cff', // dopasowane do motywu logo
+        shadowColor: '#783cff',
         shadowOpacity: 0.5,
         shadowRadius: 20,
     },
@@ -119,7 +128,6 @@ const styles = StyleSheet.create({
         marginVertical: 20,
     },
 
-    /* PRZYCISKI */
     button: {
         backgroundColor: '#26262b',
         width: '90%',
@@ -128,7 +136,7 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         marginVertical: 8,
         borderWidth: 1,
-        borderColor: 'rgba(130, 90, 255, 0.4)', // fioletowy akcent
+        borderColor: 'rgba(130, 90, 255, 0.4)',
         shadowColor: '#783cff',
         shadowOpacity: 0.3,
         shadowRadius: 10,
@@ -139,6 +147,5 @@ const styles = StyleSheet.create({
         fontSize: 18,
         color: '#e6e6e6',
         fontWeight: '600',
-        letterSpacing: 0.5,
     },
 });
