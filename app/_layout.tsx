@@ -3,19 +3,21 @@ import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 
 
+
 export default function Layout() {
+
     return (
         <Drawer
             drawerContent={() => <CustomDrawer />}
             screenOptions={{
                 headerStyle: {
-                    backgroundColor: '#1a1a1d', // CIEMNY HEADER
+                    backgroundColor: '#1a1a1d',
                 },
-                headerTintColor: '#e6e6e6', // KOLOR TEKSTU (Home Page)
+                headerTintColor: '#e6e6e6',
                 headerTitleStyle: {
                     fontSize: 22,
                     fontWeight: 'bold',
-                    textShadowColor: 'rgba(120, 60, 255, 0.6)', // FIOLETOWY GLOW
+                    textShadowColor: 'rgba(120, 60, 255, 0.6)',
                     textShadowOffset: { width: 0, height: 0 },
                     textShadowRadius: 6,
                     letterSpacing: 1,
@@ -24,10 +26,11 @@ export default function Layout() {
         >
             <Drawer.Screen name="index" options={{ title: "Home Page" }} />
             <Drawer.Screen name="results" options={{ title: "Results" }} />
-            <Drawer.Screen name="test/1" options={{ title: "Test #1" }} />
-            <Drawer.Screen name="test/2" options={{ title: "Test #2" }} />
-            <Drawer.Screen name="test/3" options={{ title: "Test #3" }} />
+            <Drawer.Screen name="rules" options={{ title: "Regulamin" }} />
+            {/* JEDEN ekran dla wszystkich /test/1, /test/2, /test/3 */}
+            <Drawer.Screen name="test/[id]" options={{ title: "Test" }} />
         </Drawer>
+
     );
 }
 
