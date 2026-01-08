@@ -1,48 +1,120 @@
+// app/test/[id].tsx
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { tasks } from "../data/tasks";
 
+type ApiTestDetails = {
+    id: string;
+    name: string;
+    description: string;
+    level: string;
+    tags: string[];
+    tasks: {
+        question: string;
+        answers: { content: string; isCorrect: boolean }[];
+        duration?: number;
+    }[];
+};
+
+type AppTest = {
+    id: string;
+    title: string;
+    questions: {
+        question: string;
+        answers: { content: string; isCorrect: boolean }[];
+    }[];
+};
+
+const TEST_DETAILS_URL = (id: string) => `https://tgryl.pl/quiz/test/${id}`;
 const RESULTS_KEY = "quiz_results";
 
 export default function TestScreen() {
-    const { id } = useLocalSearchParams();
-    const numericId = Number(id);
+    const params = useLocalSearchParams();
+    const rawId = params.id;
+    const testId = Array.isArray(rawId) ? rawId[0] : String(rawId);
 
-    const test = tasks.find(t => t.id === numericId);
+    const [test, setTest] = useState<AppTest | null>(null);
+    const [loading, setLoading] = useState(true);
 
     const [blocked, setBlocked] = useState(false);
     const [index, setIndex] = useState(0);
     const [score, setScore] = useState(0);
 
+    // reset po wejściu w inny test
     useEffect(() => {
-        setBlocked(false); // reset blokady przy zmianie ID
-    }, [numericId]);
-
-    // 🔐 sprawdzenie czy ten test był już robiony
-    useEffect(() => {
-        const check = async () => {
-            const stored = await AsyncStorage.getItem(RESULTS_KEY);
-            if (stored) {
-                const arr = JSON.parse(stored);
-                const done = arr.find((r: any) => r.testId === numericId);
-                if (done) setBlocked(true);
-            }
-        };
-        check();
-    }, [numericId]);
-
-    // 🔄 reset indeksu i wyniku po wejściu w test
-    useEffect(() => {
+        setBlocked(false);
         setIndex(0);
         setScore(0);
-    }, [numericId]);
+    }, [testId]);
+
+    // GET szczegóły testu
+    useEffect(() => {
+        const load = async () => {
+            try {
+                setLoading(true);
+
+                const res = await fetch(TEST_DETAILS_URL(testId), {
+                    method: "GET",
+                    headers: { Accept: "application/json" },
+                });
+
+                if (!res.ok) throw new Error(`Błąd HTTP: ${res.status}`);
+                const data: ApiTestDetails = await res.json();
+
+                setTest({
+                    id: data.id,
+                    title: data.name,
+                    questions: Array.isArray(data.tasks)
+                        ? data.tasks.map((t) => ({
+                            question: t.question,
+                            answers: t.answers,
+                        }))
+                        : [],
+                });
+            } catch (e) {
+                setTest(null);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        load();
+    }, [testId]);
+
+    // blokada (lokalnie)
+    useEffect(() => {
+        const check = async () => {
+            try {
+                const stored = await AsyncStorage.getItem(RESULTS_KEY);
+                if (!stored) return;
+
+                const parsed = JSON.parse(stored);
+                const arr = Array.isArray(parsed) ? parsed : [];
+                const done = arr.find((r: any) => String(r.testId) === testId);
+
+                if (done) setBlocked(true);
+            } catch {
+                setBlocked(false);
+            }
+        };
+
+        check();
+    }, [testId]);
+
+    if (loading) {
+        return (
+            <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator size="large" color="#783cff" />
+                <Text style={{ color: "#cfcfcf", marginTop: 12 }}>Ładuję test...</Text>
+            </View>
+        );
+    }
 
     if (!test) {
         return (
             <View style={styles.container}>
-                <Text style={styles.title}>Test o ID {id} nie istnieje.</Text>
+                <Text style={styles.title}>Test o ID {testId} nie istnieje.</Text>
             </View>
         );
     }
@@ -61,9 +133,7 @@ export default function TestScreen() {
     if (!test.questions[index]) {
         return (
             <View style={styles.container}>
-                <Text style={styles.title}>
-                    Błąd danych testu – brak pytania {index + 1}.
-                </Text>
+                <Text style={styles.title}>Błąd danych testu – brak pytania {index + 1}.</Text>
             </View>
         );
     }
@@ -76,43 +146,64 @@ export default function TestScreen() {
 
         const isLastQuestion = index + 1 >= test.questions.length;
 
-        if (isLastQuestion) {
-            const result = {
-                testId: test.id,
-                nick: "User",
-                score: newScore,
-                total: test.questions.length,
-                type: test.title,
-                date: new Date().toISOString().slice(0, 10),
-            };
+        if (!isLastQuestion) {
+            setIndex((prev) => prev + 1);
+            return;
+        }
 
-            // 🔥 zawsze bierzemy AKTUALNĄ tablicę wyników
+        const payload = {
+            nick: "Jan",
+            score: newScore,
+            total: test.questions.length,
+            type: test.title,
+        };
+
+        try {
+            const response = await fetch("https://tgryl.pl/quiz/result", {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.log("Błąd serwera:", errText);
+                throw new Error(`Błąd HTTP: ${response.status}`);
+            }
+
+            // zapis do blokady (po sukcesie POST)
             const stored = await AsyncStorage.getItem(RESULTS_KEY);
-            let resultsArray = stored ? JSON.parse(stored) : [];
+            let arr: any[] = [];
+            try {
+                arr = stored ? JSON.parse(stored) : [];
+                if (!Array.isArray(arr)) arr = [];
+            } catch {
+                arr = [];
+            }
 
-            // dopisz nowy wynik (nie usuwamy żadnego)
-            resultsArray.push(result);
-
-            await AsyncStorage.setItem(RESULTS_KEY, JSON.stringify(resultsArray));
+            arr.push({ testId: test.id });
+            await AsyncStorage.setItem(RESULTS_KEY, JSON.stringify(arr));
+            setBlocked(true);
 
             router.push("/results");
-        } else {
-            setIndex(prev => prev + 1);
+        } catch (error) {
+            console.error("Błąd wysyłania wyniku:", error);
+            Alert.alert("Błąd", "Nie udało się wysłać wyniku na serwer.");
         }
     };
 
-
     return (
         <View style={styles.container}>
-            <Text style={styles.question}>Pytanie {index + 1}/{test.questions.length}</Text>
+            <Text style={styles.question}>
+                Pytanie {index + 1}/{test.questions.length}
+            </Text>
             <Text style={styles.title}>{current.question}</Text>
 
             {current.answers.map((a: any, idx: number) => (
-                <TouchableOpacity
-                    key={idx}
-                    style={styles.answer}
-                    onPress={() => handleAnswer(a.isCorrect)}
-                >
+                <TouchableOpacity key={idx} style={styles.answer} onPress={() => handleAnswer(a.isCorrect)}>
                     <Text style={styles.answerText}>{a.content}</Text>
                 </TouchableOpacity>
             ))}
@@ -125,18 +216,18 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#1a1a1d",
         padding: 20,
-        justifyContent: "center"
+        justifyContent: "center",
     },
     question: {
         color: "#b38aff",
         fontSize: 18,
-        marginBottom: 10
+        marginBottom: 10,
     },
     title: {
         color: "#e6e6e6",
         fontSize: 22,
         fontWeight: "bold",
-        marginBottom: 20
+        marginBottom: 20,
     },
     answer: {
         backgroundColor: "#26262b",
@@ -148,6 +239,6 @@ const styles = StyleSheet.create({
     },
     answerText: {
         color: "#e6e6e6",
-        fontSize: 18
-    }
+        fontSize: 18,
+    },
 });

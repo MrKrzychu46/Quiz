@@ -1,16 +1,45 @@
 // app/index.tsx
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {useCallback, useEffect, useState} from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 
+type ApiTest = {
+    id: string;
+    name: string;
+    description: string;
+    tags: string[];
+    level: string;
+    numberOfTasks: number;
+};
 
-// import testów
-import { tasks } from "./data/tasks";
+const TESTS_URL = "https://tgryl.pl/quiz/tests";
 
 export default function Home() {
-    const [completedTests, setCompletedTests] = useState<number[]>([]);
+    const [completedTests, setCompletedTests] = useState<string[]>([]);
+    const [tests, setTests] = useState<ApiTest[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const loadTests = async () => {
+        try {
+            setErrorMsg(null);
+            const res = await fetch(TESTS_URL, { method: "GET", headers: { Accept: "application/json" } });
+            if (!res.ok) throw new Error(`Błąd HTTP: ${res.status}`);
+            const data = await res.json();
+            setTests(Array.isArray(data) ? data : []);
+        } catch (e: any) {
+            setErrorMsg(e?.message ?? "Nie udało się pobrać testów");
+            setTests([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadTests();
+    }, []);
 
     useFocusEffect(
         useCallback(() => {
@@ -18,7 +47,8 @@ export default function Home() {
                 const stored = await AsyncStorage.getItem("quiz_results");
                 if (stored) {
                     const arr = JSON.parse(stored);
-                    setCompletedTests(arr.map((r: any) => r.testId));
+                    // ⬇️ teraz testId jest stringiem
+                    setCompletedTests(arr.map((r: any) => String(r.testId)));
                 } else {
                     setCompletedTests([]);
                 }
@@ -28,17 +58,29 @@ export default function Home() {
         }, [])
     );
 
+    if (loading) {
+        return (
+            <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator size="large" color="#783cff" />
+                <Text style={{ color: "#cfcfcf", marginTop: 12 }}>Pobieram testy...</Text>
+            </View>
+        );
+    }
 
     return (
         <View style={{ flex: 1 }}>
             <ScrollView contentContainerStyle={styles.container}>
-                {tasks.map(test => (
+                {errorMsg && (
+                    <Text style={{ color: "#ff8a8a", marginBottom: 12, textAlign: "center" }}>{errorMsg}</Text>
+                )}
+
+                {tests.map((test) => (
                     <TestCard
                         key={test.id}
                         id={test.id}
-                        title={test.title}
-                        tags={["Quiz", "Test"]}
-                        description={`Liczba pytań: ${test.questions.length}`}
+                        title={test.name}
+                        tags={test.tags?.length ? test.tags : ["Quiz", "Test"]}
+                        description={`Liczba pytań: ${test.numberOfTasks}`}
                         completedTests={completedTests}
                     />
                 ))}
@@ -46,10 +88,7 @@ export default function Home() {
                 {/* STOPKA */}
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>Get to know your ranking result</Text>
-                    <TouchableOpacity
-                        style={styles.footerButton}
-                        onPress={() => router.push("/results")}
-                    >
+                    <TouchableOpacity style={styles.footerButton} onPress={() => router.push("/results")}>
                         <Text style={styles.footerButtonText}>Check!</Text>
                     </TouchableOpacity>
                 </View>
@@ -59,11 +98,11 @@ export default function Home() {
 }
 
 type TestCardProps = {
-    id: number;
+    id: string;              // ⬅️ było number
     title: string;
     tags: string[];
     description: string;
-    completedTests: number[];
+    completedTests: string[]; // ⬅️ było number[]
 };
 
 function TestCard({ id, title, tags, description, completedTests }: TestCardProps) {
@@ -91,6 +130,9 @@ function TestCard({ id, title, tags, description, completedTests }: TestCardProp
         </TouchableOpacity>
     );
 }
+
+// ✅ Twoje styles zostają bez zmian
+
 
 const styles = StyleSheet.create({
     container: { flex: 1, padding: 20, backgroundColor: "#1a1a1d" },

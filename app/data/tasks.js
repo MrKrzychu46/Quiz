@@ -1,4 +1,4 @@
-//tasks.js
+//app/data/tasks.js
 export const tasks = [
     {
         id: 1,

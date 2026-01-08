@@ -5,8 +5,13 @@ import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// 🔥 IMPORT TESTÓW
-import { tasks } from "./data/tasks";
+type ApiTest = {
+    id: string;
+    name: string;
+};
+
+const TESTS_URL = "https://tgryl.pl/quiz/tests";
+
 
 export default function Layout() {
     const [ready, setReady] = useState(false);
@@ -71,6 +76,21 @@ export default function Layout() {
 }
 
 function CustomDrawer() {
+    const [tests, setTests] = useState<ApiTest[]>([]);
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const res = await fetch(TESTS_URL, { headers: { Accept: "application/json" } });
+                const data = await res.json();
+                setTests(Array.isArray(data) ? data : []);
+            } catch {
+                setTests([]);
+            }
+        };
+        load();
+    }, []);
+
     return (
         <View style={styles.container}>
             <View style={styles.header}>
@@ -91,14 +111,13 @@ function CustomDrawer() {
 
             <View style={styles.separator} />
 
-            {/* 🔥 AUTOMATYCZNE GENEROWANIE PRZYCISKÓW TESTÓW */}
-            {tasks.map(test => (
+            {tests.map(test => (
                 <TouchableOpacity
                     key={test.id}
                     style={styles.button}
                     onPress={() => router.push(`/test/${test.id}`)}
                 >
-                    <Text style={styles.buttonText}>{test.title}</Text>
+                    <Text style={styles.buttonText}>{test.name}</Text>
                 </TouchableOpacity>
             ))}
         </View>

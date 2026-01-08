@@ -1,56 +1,77 @@
-import React, { useState, useCallback, useEffect } from "react";
+// app/results.tsx
+import React, { useState, useCallback } from "react";
 import {
     View,
     Text,
     StyleSheet,
     FlatList,
-    RefreshControl
+    RefreshControl,
+    ActivityIndicator,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 
-
-const RESULTS_KEY = "quiz_results";
-
-type Result = {
-    testId: number;
+type ApiResult = {
+    id?: string;          // czasem API ma id; jeśli nie ma, użyjemy fallbacku
     nick: string;
     score: number;
     total: number;
     type: string;
-    date: string;
+    createdOn?: string;   // często spotykane
+    date?: string;        // albo takie pole
 };
 
+const RESULTS_URL = "https://tgryl.pl/quiz/results?last=20";
+
 export default function Results() {
-    const [results, setResults] = useState<Result[]>([]);
+    const [results, setResults] = useState<ApiResult[]>([]);
     const [refreshing, setRefreshing] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const normalizeDate = (item: ApiResult) => item.createdOn ?? item.date ?? "";
 
     const loadResults = async (): Promise<void> => {
-        const stored = await AsyncStorage.getItem(RESULTS_KEY);
+        try {
+            setErrorMsg(null);
 
-        if (stored) {
-            let arr: Result[] = JSON.parse(stored);
+            const res = await fetch(RESULTS_URL, {
+                method: "GET",
+                headers: { Accept: "application/json" },
+            });
 
-            // upewniamy się, że to tablica
-            if (!Array.isArray(arr)) {
-                arr = [];
+            if (!res.ok) {
+                throw new Error(`Błąd HTTP: ${res.status}`);
             }
 
-            // sortuj po testId
-            arr.sort((a: Result, b: Result) => a.testId - b.testId);
+            const data = await res.json();
+
+            // API powinno zwrócić tablicę; zabezpieczenie:
+            const arr: ApiResult[] = Array.isArray(data) ? data : [];
+
+            // (opcjonalnie) sortuj od najnowszego jeśli data istnieje
+            arr.sort((a, b) => {
+                const ta = new Date(normalizeDate(a)).getTime();
+                const tb = new Date(normalizeDate(b)).getTime();
+                // jeśli brak daty, niech zostanie kolejność z API
+                if (Number.isNaN(ta) || Number.isNaN(tb)) return 0;
+                return tb - ta;
+            });
 
             setResults(arr);
-        } else {
+        } catch (e: any) {
+            setErrorMsg(e?.message ?? "Nie udało się pobrać wyników");
             setResults([]);
+        } finally {
+            setLoading(false);
         }
     };
 
     useFocusEffect(
         useCallback(() => {
+            setLoading(true);
             loadResults();
         }, [])
     );
-
 
     const onRefresh = useCallback(async (): Promise<void> => {
         setRefreshing(true);
@@ -58,19 +79,43 @@ export default function Results() {
         setRefreshing(false);
     }, []);
 
-    const renderItem = ({ item }: { item: Result }) => (
+    const renderItem = ({ item }: { item: ApiResult }) => (
         <View style={styles.card}>
             <Text style={styles.nick}>{item.type}</Text>
-            <Text style={styles.text}>Wynik: {item.score} / {item.total}</Text>
-            <Text style={styles.date}>Data: {item.date}</Text>
+            <Text style={styles.text}>Nick: {item.nick}</Text>
+            <Text style={styles.text}>
+                Wynik: {item.score} / {item.total}
+            </Text>
+            {!!normalizeDate(item) && (
+                <Text style={styles.date}>Data: {normalizeDate(item)}</Text>
+            )}
         </View>
     );
 
+    if (loading) {
+        return (
+            <View style={[styles.container, { justifyContent: "center" }]}>
+                <ActivityIndicator size="large" color="#783cff" />
+                <Text style={{ color: "#cfcfcf", textAlign: "center", marginTop: 12 }}>
+                    Pobieram wyniki...
+                </Text>
+            </View>
+        );
+    }
+
     return (
         <View style={styles.container}>
+            {errorMsg && (
+                <Text style={{ color: "#ff8a8a", marginBottom: 12, textAlign: "center" }}>
+                    {errorMsg}
+                </Text>
+            )}
+
             <FlatList
                 data={results}
-                keyExtractor={(item: Result, index) => `${item.testId}-${index}`}
+                keyExtractor={(item, index) =>
+                    item.id ? String(item.id) : `${item.nick}-${item.type}-${normalizeDate(item)}-${index}`
+                }
                 renderItem={renderItem}
                 refreshControl={
                     <RefreshControl
@@ -82,7 +127,7 @@ export default function Results() {
                 }
                 ListEmptyComponent={
                     <Text style={{ color: "#cfcfcf", textAlign: "center", marginTop: 20 }}>
-                        Brak wyników – wykonaj test 🙂
+                        Brak wyników do wyświetlenia 🙂
                     </Text>
                 }
             />
@@ -120,5 +165,5 @@ const styles = StyleSheet.create({
     date: {
         color: "#b38aff",
         marginTop: 8,
-    }
+    },
 });
