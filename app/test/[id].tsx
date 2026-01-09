@@ -3,19 +3,8 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-type ApiTestDetails = {
-    id: string;
-    name: string;
-    description: string;
-    level: string;
-    tags: string[];
-    tasks: {
-        question: string;
-        answers: { content: string; isCorrect: boolean }[];
-        duration?: number;
-    }[];
-};
+import _ from "lodash";
+import { getTestDetails } from "../services/testsStorage";
 
 type AppTest = {
     id: string;
@@ -26,7 +15,6 @@ type AppTest = {
     }[];
 };
 
-const TEST_DETAILS_URL = (id: string) => `https://tgryl.pl/quiz/test/${id}`;
 const RESULTS_KEY = "quiz_results";
 
 export default function TestScreen() {
@@ -54,25 +42,21 @@ export default function TestScreen() {
             try {
                 setLoading(true);
 
-                const res = await fetch(TEST_DETAILS_URL(testId), {
-                    method: "GET",
-                    headers: { Accept: "application/json" },
-                });
-
-                if (!res.ok) throw new Error(`Błąd HTTP: ${res.status}`);
-                const data: ApiTestDetails = await res.json();
+                const data = await getTestDetails(testId);
 
                 setTest({
                     id: data.id,
                     title: data.name,
                     questions: Array.isArray(data.tasks)
-                        ? data.tasks.map((t) => ({
+                        ? _.shuffle(data.tasks).map((t) => ({
                             question: t.question,
-                            answers: t.answers,
+                            answers: _.shuffle(t.answers),
                         }))
                         : [],
                 });
             } catch (e) {
+                const message = e instanceof Error ? e.message : "Brak internetu";
+                Alert.alert("Błąd", message);
                 setTest(null);
             } finally {
                 setLoading(false);
@@ -191,8 +175,15 @@ export default function TestScreen() {
             router.push("/results");
         } catch (error) {
             console.error("Błąd wysyłania wyniku:", error);
-            Alert.alert("Błąd", "Nie udało się wysłać wyniku na serwer.");
+
+            const msg =
+                error instanceof TypeError
+                    ? "Nie udało się wysłać wyników – brak internetu lub problem z siecią."
+                    : "Nie udało się wysłać wyników na serwer.";
+
+            Alert.alert("Błąd", msg);
         }
+
     };
 
     return (

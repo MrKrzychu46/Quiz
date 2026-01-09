@@ -4,42 +4,70 @@ import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-
-type ApiTest = {
-    id: string;
-    name: string;
-    description: string;
-    tags: string[];
-    level: string;
-    numberOfTasks: number;
-};
-
-const TESTS_URL = "https://tgryl.pl/quiz/tests";
+import _ from "lodash";
+import { ensureDailyTestsCache, loadCachedTests, type ApiTest } from "./services/testsStorage";
+import NetInfo from "@react-native-community/netinfo";
 
 export default function Home() {
     const [completedTests, setCompletedTests] = useState<string[]>([]);
     const [tests, setTests] = useState<ApiTest[]>([]);
     const [loading, setLoading] = useState(true);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [isOffline, setIsOffline] = useState(true);
 
-    const loadTests = async () => {
-        try {
-            setErrorMsg(null);
-            const res = await fetch(TESTS_URL, { method: "GET", headers: { Accept: "application/json" } });
-            if (!res.ok) throw new Error(`Błąd HTTP: ${res.status}`);
-            const data = await res.json();
-            setTests(Array.isArray(data) ? data : []);
-        } catch (e: any) {
-            setErrorMsg(e?.message ?? "Nie udało się pobrać testów");
-            setTests([]);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     useEffect(() => {
-        loadTests();
+        const init = async () => {
+            try {
+                setErrorMsg(null);
+
+                // najpierw pokaż cache
+                const cached = await loadCachedTests();
+                setTests(cached);
+
+                const net = await NetInfo.fetch();
+                const online =
+                    net.isConnected === true &&
+                    net.isInternetReachable !== false;
+
+                if (!online) {
+                    setIsOffline(true);
+
+                    if (cached.length === 0) {
+                        setErrorMsg("Brak internetu i brak zapisanych testów.");
+                    } else {
+                        setErrorMsg("Brak internetu – wyświetlam zapisane testy.");
+                    }
+                    return;
+                }
+
+                setIsOffline(false);
+
+                // potem dociągnij świeże raz na dobę (jeśli trzeba)
+                const freshOrCached = await ensureDailyTestsCache();
+                setTests(freshOrCached);
+            } catch (e: any) {
+                setErrorMsg(e?.message ?? "Nie udało się wczytać testów");
+                setTests([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        init();
     }, []);
+
+    useEffect(() => {
+        const unsub = NetInfo.addEventListener((state) => {
+            console.log("NETINFO:", state);
+            const offline = state.isConnected === false || state.isInternetReachable === false;
+            setIsOffline(offline);
+        });
+
+        return () => unsub();
+    }, []);
+
+
 
     useFocusEffect(
         useCallback(() => {
@@ -69,12 +97,19 @@ export default function Home() {
 
     return (
         <View style={{ flex: 1 }}>
+            {isOffline && (
+                <View style={styles.offlineBanner}>
+                    <Text style={styles.offlineText}>
+                        Brak połączenia z internetem – tryb offline
+                    </Text>
+                </View>
+            )}
             <ScrollView contentContainerStyle={styles.container}>
                 {errorMsg && (
                     <Text style={{ color: "#ff8a8a", marginBottom: 12, textAlign: "center" }}>{errorMsg}</Text>
                 )}
 
-                {tests.map((test) => (
+                {_.shuffle(tests).map((test) => (
                     <TestCard
                         key={test.id}
                         id={test.id}
@@ -135,7 +170,7 @@ function TestCard({ id, title, tags, description, completedTests }: TestCardProp
 
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 20, backgroundColor: "#1a1a1d" },
+    container: { padding: 20, backgroundColor: "#1a1a1d" },
 
     card: {
         backgroundColor: "#26262b",
@@ -175,4 +210,19 @@ const styles = StyleSheet.create({
     },
 
     footerButtonText: { fontSize: 18, fontWeight: "bold", color: "#e6e6e6" },
+
+    offlineBanner: {
+        backgroundColor: "#3a1d1d",
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: "#ff8a8a",
+    },
+
+    offlineText: {
+        color: "#ff8a8a",
+        textAlign: "center",
+        fontWeight: "600",
+    },
+
 });

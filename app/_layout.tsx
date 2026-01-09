@@ -1,14 +1,13 @@
 // app/_layout.tsx
 import { Drawer } from "expo-router/drawer";
-import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
+import {View, Text, StyleSheet, Image, TouchableOpacity, ScrollView} from "react-native";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import _ from "lodash";
+import { ensureDailyTestsCache, loadCachedTests, type ApiTest } from "./services/testsStorage";
 
-type ApiTest = {
-    id: string;
-    name: string;
-};
+
 
 const TESTS_URL = "https://tgryl.pl/quiz/tests";
 
@@ -20,13 +19,13 @@ export default function Layout() {
         const checkLaunch = async () => {
             try {
                 const launched = await AsyncStorage.getItem("alreadyLaunched");
-
                 if (!launched) {
                     // bezpieczniejsze wywołanie replace po wyrenderowaniu
                     requestAnimationFrame(() => {
                         router.replace("/welcome");
                     });
                 }
+                await ensureDailyTestsCache();
             } catch (e) {
                 console.error("Launch check error:", e);
             } finally {
@@ -77,6 +76,18 @@ export default function Layout() {
 
 function CustomDrawer() {
     const [tests, setTests] = useState<ApiTest[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
+    const fetchTests = async () => {
+        const cached = await loadCachedTests();
+        setTests(cached);
+
+        const freshOrCached = await ensureDailyTestsCache();
+        setTests(freshOrCached);
+    };
+
+    useEffect(() => {
+        fetchTests();
+    }, []);
 
     useEffect(() => {
         const load = async () => {
@@ -91,8 +102,18 @@ function CustomDrawer() {
         load();
     }, []);
 
+    const goRandomTest = () => {
+        if (!tests.length) return;
+        const random = tests[Math.floor(Math.random() * tests.length)];
+        router.push(`/test/${random.id}`);
+    };
+
     return (
-        <View style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            showsVerticalScrollIndicator={false}
+        >
             <View style={styles.header}>
                 <Image
                     source={require("../assets/images/Quiz_App_IMG.png")}
@@ -109,9 +130,27 @@ function CustomDrawer() {
                 <Text style={styles.buttonText}>Results</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+                style={[styles.button, !tests.length && { opacity: 0.5 }]}
+                onPress={goRandomTest}
+                disabled={!tests.length}
+            >
+                <Text style={styles.buttonText}>Random test</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+                style={styles.button}
+                onPress={fetchTests}
+                disabled={refreshing}
+            >
+                <Text style={styles.buttonText}>
+                    {refreshing ? "Refreshing..." : "Refresh tests"}
+                </Text>
+            </TouchableOpacity>
+
             <View style={styles.separator} />
 
-            {tests.map(test => (
+            {_.shuffle(tests).map(test => (
                 <TouchableOpacity
                     key={test.id}
                     style={styles.button}
@@ -120,7 +159,7 @@ function CustomDrawer() {
                     <Text style={styles.buttonText}>{test.name}</Text>
                 </TouchableOpacity>
             ))}
-        </View>
+        </ScrollView>
     );
 }
 
@@ -129,7 +168,7 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#1a1a1d",
         paddingTop: 60,
-        paddingHorizontal: 10,
+        paddingHorizontal: 20,
     },
     header: {
         alignItems: "center",
